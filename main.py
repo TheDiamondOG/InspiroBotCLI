@@ -15,6 +15,7 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("-i", "--image", action="store_true")
 parser.add_argument("-t", "--text", action="store_true")
+parser.add_argument("-d", "--debug", action="store_true")
 parser.add_argument("-c", "--count")
 
 parser.add_argument("-o", "--output")
@@ -31,16 +32,34 @@ if args.image:
         'generate': 'true',
     }
 
-    res = requests.get('https://inspirobot.me/api', params=params)
+    if quote_count == None:
+        res = requests.get('https://inspirobot.me/api', params=params)
 
-    if args.output:
-        output_dir = args.output
+        if args.output:
+            output_dir = args.output
+        else:
+            output_dir = "output"
+        os.makedirs(output_dir, exist_ok=True)
+
+        image_res = requests.get(res.text)
+
+        with open(f"{output_dir}/{res.text.split('/')[-1]}", "wb") as f:
+            f.write(image_res.content)
     else:
-        output_dir = "output"
-    os.mkdir(output_dir)
+        if args.output:
+            output_dir = args.output
+        else:
+            output_dir = "output"
+        os.makedirs(output_dir, exist_ok=True)
 
-    with open(f"{output_dir}/{res.text.split('/')[-1]}", "wb") as f:
-        f.write(res.content)
+        for i in range(quote_count):
+            res = requests.get('https://inspirobot.me/api', params=params)
+
+            image_res = requests.get(res.text)
+
+            with open(f"{output_dir}/{res.text.split('/')[-1]}", "wb") as f:
+                f.write(image_res.content)
+
 elif args.text:
     quotes = []
 
