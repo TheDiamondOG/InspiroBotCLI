@@ -4,6 +4,7 @@ import requests
 import argparse
 import math
 import re
+import threading
 
 def banner():
     ban = """ ______                                               ____            __      
@@ -20,97 +21,68 @@ def banner():
 
 banner()
 
-def quote_cleaner(quotes:list):
-    formated_quotes = []
-    for quote in quotes:
-         formated_quotes.append(re.sub(r"\[.*?]", "", quote))
-    return formated_quotes
+def quote_cleaner(quotes):
+    return [re.sub(r"\[.*?]", "", quote) for quote in quotes]
+
+def download_image(output_dir):
+    res = requests.get('https://inspirobot.me/api', params={'generate': 'true'})
+    image_res = requests.get(res.text)
+    file_path = os.path.join(output_dir, res.text.split('/')[-1])
+    with open(file_path, "wb") as f:
+        f.write(image_res.content)
+    print(f"Downloaded: {file_path}")
+
+def fetch_quotes(quotes, batch_size=3):
+    params = {'generateFlow': '1'}
+    for _ in range(batch_size):
+        res = requests.get('https://inspirobot.me/api', params=params)
+        data = res.json()["data"]
+        quotes.extend([i["text"] for i in data if i["type"] == "quote"])
+
+def threaded_image_download(count, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    threads = [threading.Thread(target=download_image, args=(output_dir,)) for _ in range(count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+def threaded_quote_fetch(count):
+    quotes = []
+    threads = []
+    for _ in range(math.ceil(count / 3)):
+        thread = threading.Thread(target=fetch_quotes, args=(quotes, 3))
+        threads.append(thread)
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return quote_cleaner(quotes)[:count]
 
 parser = argparse.ArgumentParser()
-
 parser.add_argument("-i", "--image", action="store_true")
 parser.add_argument("-t", "--text", action="store_true")
 parser.add_argument("-d", "--debug", action="store_true")
-parser.add_argument("-c", "--count")
-
+parser.add_argument("-c", "--count", type=int)
 parser.add_argument("-o", "--output")
-
 args = parser.parse_args()
 
-if args.count:
-    quote_count = int(args.count)
-else:
-    quote_count = None
+quote_count = args.count if args.count else None
+output_dir = args.output if args.output else "output"
 
 if args.image:
-    params = {
-        'generate': 'true',
-    }
-
-    if quote_count == None:
-        res = requests.get('https://inspirobot.me/api', params=params)
-
-        if args.output:
-            output_dir = args.output
-        else:
-            output_dir = "output"
-        os.makedirs(output_dir, exist_ok=True)
-
-        image_res = requests.get(res.text)
-
-        with open(f"{output_dir}/{res.text.split('/')[-1]}", "wb") as f:
-            f.write(image_res.content)
+    if quote_count:
+        threaded_image_download(quote_count, output_dir)
     else:
-        if args.output:
-            output_dir = args.output
-        else:
-            output_dir = "output"
-        os.makedirs(output_dir, exist_ok=True)
-
-        for i in range(quote_count):
-            res = requests.get('https://inspirobot.me/api', params=params)
-
-            image_res = requests.get(res.text)
-
-            with open(f"{output_dir}/{res.text.split('/')[-1]}", "wb") as f:
-                f.write(image_res.content)
+        download_image(output_dir)
 
 elif args.text:
-    quotes = []
-
-    params = {
-        'generateFlow': '1',
-    }
-
-    if quote_count == None:
-        res = requests.get('https://inspirobot.me/api', params=params)
-
-        data = res.json()["data"]
-
-        quotes = quote_cleaner(quotes)
-
-        for i in data:
-            if i["type"] == "quote":
-                quotes.append(i["text"])
-
-        print(random.choice(quotes))
+    if quote_count:
+        quotes = threaded_quote_fetch(quote_count)
+        for count, quote in enumerate(quotes, start=1):
+            print(f"{count}. {quote}")
     else:
-        for i in range(math.ceil(quote_count/3)):
-            res = requests.get('https://inspirobot.me/api', params=params)
+        quotes = threaded_quote_fetch(3)
+        print(random.choice(quotes))
 
-            data = res.json()["data"]
-
-            for i in data:
-                if i["type"] == "quote":
-                    quotes.append(i["text"])
-
-        quotes = quote_cleaner(quotes)
-
-        count = 0
-
-        for i in quotes:
-            if count != quote_count:
-                print(f"{count+1}. {i}")
-                count += 1
 else:
     parser.print_help()
